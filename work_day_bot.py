@@ -48,11 +48,10 @@ WEBMAIL_PW_FIELD_ID = "userPw"
 # TARGET_DATE = datetime.date.today() # This will be UTC date on Render unless TZ is set
 # It's often better to get KST explicitly if the report *must* be for KST today
 try:
-    from zoneinfo import ZoneInfo # Python 3.9+
+    from zoneinfo import ZoneInfo # Try standard library first (Python 3.9+)
     KST = ZoneInfo("Asia/Seoul")
 except ImportError:
-    # Fallback for older Python if needed, though Render likely has 3.9+
-    import pytz
+    import pytz # Fallback to pytz if zoneinfo isn't available
     KST = pytz.timezone("Asia/Seoul")
 
 TARGET_DATETIME_KST = datetime.datetime.now(KST)
