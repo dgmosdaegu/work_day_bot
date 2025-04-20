@@ -92,7 +92,14 @@ def setup_driver():
         # Use webdriver-manager to automatically handle chromedriver installation/path
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
-        driver.implicitly_wait(10) # Default wait time for elements
+        driver.implicitly_wait(10) # Default wait time for finding elements
+
+        # *** INCREASE PAGE LOAD TIMEOUT ***
+        # Set how long driver.get() should wait for the page load to complete
+        page_load_timeout_seconds = 180 # Try 3 minutes initially, adjust if needed
+        driver.set_page_load_timeout(page_load_timeout_seconds)
+        logging.info(f"Set page load timeout to {page_load_timeout_seconds} seconds.")
+
         logging.info("ChromeDriver setup complete (running headless).")
         return driver
     except Exception as e:
@@ -103,8 +110,9 @@ def setup_driver():
 def login_and_get_cookies(driver, url, username_id, password_id, username, password):
     """Logs into the webmail using Selenium and extracts session cookies."""
     logging.info(f"Navigating to login page: {url}")
+    # The driver.get() call below will now use the page_load_timeout set in setup_driver()
     driver.get(url)
-    wait = WebDriverWait(driver, 30) # Increased wait time for elements
+    wait = WebDriverWait(driver, 30) # Wait for elements after page starts loading
     time.sleep(2) # Static wait can sometimes help with dynamic page loads
 
     try:
@@ -120,7 +128,6 @@ def login_and_get_cookies(driver, url, username_id, password_id, username, passw
         pw_field.send_keys(Keys.RETURN)
 
         # Wait for an element that indicates successful login (e.g., logout link, main container)
-        # Using a more robust locator combining possibilities
         post_login_locator = (By.XPATH, "//a[contains(@href, 'logout')] | //*[contains(text(),'로그아웃')] | //div[@id='main_container'] | //span[@class='username']")
         logging.info(f"Waiting for login success indication using locator: {post_login_locator}...")
         wait.until(EC.presence_of_element_located(post_login_locator))
@@ -135,9 +142,10 @@ def login_and_get_cookies(driver, url, username_id, password_id, username, passw
 
     except TimeoutException:
         current_url = driver.current_url
-        logging.warning(f"TimeoutException waiting for post-login element. Current URL: {current_url}")
+        logging.warning(f"TimeoutException waiting for post-login element OR page load (check previous logs). Current URL: {current_url}")
         login_page_check_url = url.split('?')[0] # Base login URL
 
+        # Check if still on login page AFTER the page load timeout might have occurred
         if login_page_check_url in current_url:
             logging.info("Still on the login page. Checking for error messages...")
             found_error = None
@@ -158,11 +166,13 @@ def login_and_get_cookies(driver, url, username_id, password_id, username, passw
                 try:
                     screenshot_path = "login_timeout_screenshot.png"
                     driver.save_screenshot(screenshot_path)
-                    logging.info(f"Saved screenshot to {screenshot_path} (login page timeout)")
+                    logging.info(f"Saved screenshot to {screenshot_path} (login page timeout/element not found)")
                 except Exception as ss_err:
                     logging.warning(f"Failed to save screenshot: {ss_err}")
-                raise Exception("로그인 실패: 페이지가 변경되지 않았습니다 (타임아웃). 로그인 후 요소 확인 필요.")
+                # Distinguish timeout reason if possible
+                raise Exception("로그인 실패: 페이지 로드 또는 로그인 후 요소 확인 시간 초과.")
         else:
+             # Page changed, but element confirmation failed. Assume login likely worked.
              logging.warning("Redirected away from login page, but post-login element confirmation timed out. Attempting to extract cookies anyway.")
              try:
                  cookies = {c['name']: c['value'] for c in driver.get_cookies()}
@@ -172,7 +182,8 @@ def login_and_get_cookies(driver, url, username_id, password_id, username, passw
                  raise Exception(f"로그인 상태 확인 실패: 페이지는 변경되었으나 쿠키 추출 중 오류 발생 ({cookie_err})")
 
     except Exception as e:
-        logging.error(f"An unexpected error occurred during login: {e}")
+        # Catch other errors like the initial page load timeout from driver.get()
+        logging.error(f"An unexpected error occurred during login process: {e}")
         logging.error(traceback.format_exc())
         try:
             screenshot_path = "login_error_screenshot.png"
@@ -574,7 +585,6 @@ def analyze_attendance(excel_data, sheet_name):
         logging.info(f"Cleaned columns found: {df.columns.tolist()}")
 
         # Define mapping from actual (potentially changing) column names to desired names
-        # Using Unnamed indices based on the original script's analysis
         actual_to_desired_mapping = {
             '서무원': '이름',          # Employee Name
             '출퇴근': '유형',          # Type (e.g., 출퇴근, 법정휴가)
@@ -786,7 +796,6 @@ def analyze_attendance(excel_data, sheet_name):
             has_clock_out = actual_end_dt is not None
 
             # Determine if employee has morning/afternoon leave based on collected leaves
-            # Re-check based on combined analysis (covers specific half-day types or time ranges)
             current_has_morning_leave = any(
                 l['type'] == MORNING_HALF_LEAVE or
                 (l['start'] and l['end'] and l['start'] <= standard_start_time and l['end'] >= noon_time)
@@ -847,24 +856,23 @@ def analyze_attendance(excel_data, sheet_name):
             })
 
             # --- Populate Data for Image Table ---
-             # Determine Type/Category for the image based on leaves and attendance
             img_type = ATTENDANCE_TYPE
             img_category = '정상'
             leave_descs = [l['type'] for l in collected_leaves if l['type']]
             if MORNING_HALF_LEAVE in leave_descs:
-                img_type = MORNING_HALF_LEAVE
-                img_category = '반차'
+                img_type = MORNING_HALF_LEAVE; img_category = '반차'
             if AFTERNOON_HALF_LEAVE in leave_descs:
-                 # If both, maybe prioritize afternoon or combine? Let's use Afternoon for simplicity
+                img_type = AFTERNOON_HALF_LEAVE; img_category = '반차' # Overwrite if both exist for simplicity
+            # If only specific half-day leaves, set type explicitly
+            if MORNING_HALF_LEAVE in leave_descs and AFTERNOON_HALF_LEAVE not in leave_descs:
+                 img_type = MORNING_HALF_LEAVE
+            elif AFTERNOON_HALF_LEAVE in leave_descs and MORNING_HALF_LEAVE not in leave_descs:
                  img_type = AFTERNOON_HALF_LEAVE
-                 img_category = '반차'
-                 # If only one half-day leave, use that.
-                 if MORNING_HALF_LEAVE not in leave_descs:
-                      img_type = AFTERNOON_HALF_LEAVE
+
 
             # Use raw times for display, indicate missing records
-            img_clock_in = clock_in_raw if clock_in_raw else ('-' if not has_clock_in else '오류?') # Show raw time or '-' if missing
-            img_clock_out = clock_out_raw if clock_out_raw else ('-' if not has_clock_out else '미퇴근')
+            img_clock_in = clock_in_raw if clock_in_raw else ('기록없음' if not current_has_morning_leave else '-') # Show raw time or indication
+            img_clock_out = clock_out_raw if clock_out_raw else ('미퇴근' if has_clock_in and not current_has_afternoon_leave else ('기록없음' if not has_clock_in else '-'))
 
             processed_data_for_image.append({
                 '이름': name_raw,
@@ -922,7 +930,7 @@ if __name__ == "__main__":
 
     # --- Phase 1: Setup, Login, Download ---
     try:
-        driver = setup_driver()
+        driver = setup_driver() # This now sets the page load timeout
         cookies = login_and_get_cookies(driver, WEBMAIL_LOGIN_URL, WEBMAIL_ID_FIELD_ID, WEBMAIL_PW_FIELD_ID, WEBMAIL_USERNAME, WEBMAIL_PASSWORD)
         excel_file_data = download_excel_report(REPORT_URL, cookies)
 
@@ -937,6 +945,7 @@ if __name__ == "__main__":
         logging.error(traceback.format_exc()) # Log full traceback
         error_occurred = True
         # Attempt to send Telegram notification about the critical error
+        # Make sure escape_markdown is defined before this point (it is)
         send_telegram_message(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, f"*{escape_markdown(TARGET_DATE_STR)} 스크립트 오류* \\(초기 단계\\):\n{escape_markdown(str(e))}")
     finally:
         # Ensure WebDriver is closed even if errors occurred
@@ -962,7 +971,6 @@ if __name__ == "__main__":
                  # Analysis function should have sent its own error message
             else:
                 # Determine if it's morning or evening run based on UTC time
-                # Ensure EVENING_RUN_THRESHOLD_HOUR is set correctly based on desired KST time converted to UTC
                 now_utc_time = datetime.datetime.utcnow().time()
                 is_evening = now_utc_time >= datetime.time(EVENING_RUN_THRESHOLD_HOUR, 0)
                 logging.info(f"Current UTC time {now_utc_time.strftime('%H:%M:%S')}. Reporting as {'Evening' if is_evening else 'Morning'}.")
@@ -976,17 +984,18 @@ if __name__ == "__main__":
 
                 # --- Send Table Image ---
                 if df_for_image is not None and not df_for_image.empty:
-                    img_title = f"{TARGET_DATE_STR} 근태 현황 (처리: {analysis_summary['target'] + analysis_summary['excluded']}명)"
+                    img_title = f"{TARGET_DATE_STR} 근태 현황 (처리: {analysis_summary.get('total_employees', 0)}명)" # Use total from summary
                     image_path = create_table_image(df_for_image, img_title, "attendance_table.png")
                     if image_path:
                         caption = f"*{escape_markdown(TARGET_DATE_STR)} 근태 상세 현황*"
                         try:
                             if not send_telegram_photo(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, image_path, caption):
                                  logging.error("Failed to send Telegram photo (send_telegram_photo returned False).")
-                                 error_occurred = True # Mark error if sending fails
+                                 # Decide if photo failure is critical enough to set error_occurred = True
+                                 # error_occurred = True
                         except Exception as photo_e:
                              logging.error(f"Exception occurred while sending Telegram photo: {photo_e}")
-                             error_occurred = True
+                             # error_occurred = True
                         finally:
                             # Clean up the generated image file
                             try:
@@ -996,7 +1005,7 @@ if __name__ == "__main__":
                                 logging.warning(f"Could not delete image file {image_path}: {del_err}")
                     else:
                         logging.error("Failed to create the table image file.")
-                        error_occurred = True # Mark error if image creation fails
+                        # error_occurred = True # Decide if image creation failure is critical
                 elif df_for_image is None:
                      logging.warning("Analysis did not produce a DataFrame for the image. Skipping image.")
                 else: # df_for_image is empty
@@ -1020,7 +1029,6 @@ if __name__ == "__main__":
                              message_lines.append(line)
                     else:
                          logging.info("No detailed status entries found for evening report.")
-                         # Add a message indicating completion or empty data
                          if analysis_summary.get("target", 0) > 0:
                             message_lines.append(escape_markdown("분석 대상 인원에 대한 상세 상태 데이터가 없습니다."))
                          else:
@@ -1037,7 +1045,6 @@ if __name__ == "__main__":
                             message_lines.append(line)
                     else:
                         logging.info("No specific morning attendance issues found.")
-                        # Add a confirmation message if there were target employees but no issues
                         if analysis_summary.get("target", 0) > 0:
                             message_lines.append(escape_markdown("모든 분석 대상 인원의 출근 기록이 정상입니다 (지각/미기록 없음)."))
                         else:
@@ -1050,8 +1057,9 @@ if __name__ == "__main__":
                      full_msg = msg_header + msg_body
                      logging.info(f"Sending detailed {'evening status' if is_evening else 'morning issue'} report.")
                      if not send_telegram_message(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, full_msg):
-                         error_occurred = True # Mark error if sending fails
-                         logging.error("Failed to send detailed report message.")
+                         # Don't necessarily set error_occurred=True just because Telegram failed,
+                         # but log it prominently.
+                         logging.error("Failed to send detailed report message to Telegram.")
                 else:
                      logging.warning("No content generated for the detailed report message.")
 
@@ -1059,7 +1067,7 @@ if __name__ == "__main__":
             # Catch errors during the analysis or reporting generation phase
             logging.error(f"Error during analysis/reporting generation phase: {e}")
             logging.error(traceback.format_exc())
-            error_occurred = True
+            error_occurred = True # Mark as error if analysis/report generation fails
             send_telegram_message(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, f"*{escape_markdown(TARGET_DATE_STR)} 스크립트 오류* \\(결과 처리/알림 생성 중\\):\n{escape_markdown(str(e))}")
 
     # --- Phase 3: Send Summary Report ---
@@ -1111,13 +1119,13 @@ if __name__ == "__main__":
             summary_msg = f"{summary_title}\n{escape_markdown('-'*20)}\n{summary_details}"
             logging.info("Sending summary report.")
             if not send_telegram_message(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, summary_msg):
-                error_occurred = True # Mark error if sending fails
-                logging.error("Failed to send summary report message.")
+                # Log failure but don't necessarily mark script as failed overall
+                logging.error("Failed to send summary report message to Telegram.")
 
         except Exception as summary_err:
             logging.error(f"Error generating or sending summary report: {summary_err}")
             logging.error(traceback.format_exc())
-            error_occurred = True
+            error_occurred = True # Mark as error if summary generation fails
             # Try to send a fallback error message for summary failure
             send_telegram_message(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, f"*{escape_markdown(TARGET_DATE_STR)} 스크립트 오류*\n요약 보고서 생성/전송 중 오류 발생\\: {escape_markdown(str(summary_err))}")
     elif not error_occurred:
