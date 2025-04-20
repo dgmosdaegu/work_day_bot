@@ -10,7 +10,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
-import io
 
 # 환경변수로부터 설정값 읽기
 WEBMAIL_USERNAME = os.getenv("WEBMAIL_ID")
@@ -28,6 +27,9 @@ def setup_driver():
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--disable-software-rasterizer')
+    options.add_argument('--disable-extensions')
     options.add_argument('--window-size=1920x1080')
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
@@ -77,3 +79,4 @@ if __name__ == "__main__":
     except Exception as e:
         logging.error("스크립트 오류 발생", exc_info=True)
         send_telegram_message(f"[{REPORT_DATE}] 스크립트 오류 ❌: {e}")
+
