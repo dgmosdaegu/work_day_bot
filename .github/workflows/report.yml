@@ -5,7 +5,6 @@ on:
     # KST is UTC+9. Run at 9:35 AM KST and 6:35 PM KST daily.
     # 9:35 AM KST = 00:35 UTC
     # 6:35 PM KST = 09:35 UTC
-    # Cron format: minute hour day(month) month day(week)
     - cron: '35 0,9 * * *' # Runs at 00:35 and 09:35 UTC daily
 
   workflow_dispatch: # Allows manual triggering from GitHub Actions tab
@@ -17,8 +16,7 @@ on:
 
 jobs:
   run-attendance-report:
-    runs-on: ubuntu-latest # Use a standard Linux runner provided by GitHub
-    # Optional: Set timeout for the job
+    runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
@@ -29,34 +27,29 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip' # Cache pip dependencies
+          cache: 'pip'
 
       - name: Install Google Chrome Stable and Dependencies
         run: |
           echo "Updating package lists..."
           sudo apt-get update -y
           echo "Installing prerequisites for Chrome setup..."
-          sudo apt-get install -y wget gnupg software-properties-common
+          sudo apt-get install -y wget gnupg software-properties-common curl # Added curl here
           echo "Adding Google Chrome repository..."
           wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
           sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list'
           echo "Updating package lists again after adding repo..."
           sudo apt-get update -y
           echo "Installing Google Chrome Stable..."
-          # Let apt handle most dependencies. Add specific ones only if needed and known to be correct.
-          # libasound2t64 is the correct name for libasound2 on Ubuntu 24.04 (noble)
-          # Other common ones sometimes needed for headless: libnss3 libxss1 libgconf-2-4 (older)
-          # Start minimal and add more *only if* the script fails due to missing libraries.
-          sudo apt-get install -y google-chrome-stable libnss3 libasound2t64 # <-- Use libasound2t64
+          sudo apt-get install -y google-chrome-stable libnss3 libasound2t64
           echo "Verifying Chrome installation..."
           google-chrome-stable --version || echo "Chrome verification failed"
 
       - name: Install Korean Fonts (Nanum)
         run: |
           echo "Installing Korean fonts..."
-          sudo apt-get update -y # Good practice to update before installing
+          sudo apt-get update -y
           sudo apt-get install -y fonts-nanum*
-          # Rebuild font cache
           echo "Rebuilding font cache..."
           sudo fc-cache -fv
           echo "Font installation complete."
@@ -68,16 +61,36 @@ jobs:
           pip install -r requirements.txt
           echo "Python dependencies installed."
 
+      # *** NEW: Direct connectivity test using curl ***
+      - name: Test Connectivity to Login Page
+        run: |
+          echo "Testing direct connection to http://gw.ktmos.co.kr/mail2/loginPage.do"
+          # -I: Show headers only, -L: Follow redirects, -s: Silent, -o /dev/null: Discard body
+          # --connect-timeout: Max time for connection, -m: Max total time
+          curl -I -L -s -o /dev/null --connect-timeout 15 -m 30 --fail http://gw.ktmos.co.kr/mail2/loginPage.do
+          if [ $? -eq 0 ]; then
+            echo "Connectivity test PASSED (received successful HTTP response)."
+          else
+            echo "Connectivity test FAILED (status code >= 400 or timeout)."
+            # Optionally, you could choose to fail the workflow here if connectivity is essential
+            # exit 1
+          fi
+          echo "Testing direct connection to report URL structure (may require login)"
+          # Use the template URL, actual download needs cookies
+          curl -I -L -s -o /dev/null --connect-timeout 15 -m 30 --fail http://gw.ktmos.co.kr/owattend/rest/dclz/report/CompositeStatus/sumr/user/days/excel
+          if [ $? -eq 0 ]; then
+            echo "Connectivity test PASSED for report URL structure (received successful HTTP response - likely redirect to login)."
+          else
+            echo "Connectivity test FAILED for report URL structure (status code >= 400 or timeout)."
+          fi
+
       - name: Run Attendance Bot Script
         env:
-          # Map GitHub secrets to environment variables for the script
           WEBMAIL_USERNAME: ${{ secrets.WEBMAIL_USERNAME }}
           WEBMAIL_PASSWORD: ${{ secrets.WEBMAIL_PASSWORD }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # Set Matplotlib cache directory
           MPLCONFIGDIR: ${{ github.workspace }}/.cache/matplotlib
-          # Pass log level from manual trigger if provided
           LOG_LEVEL: ${{ github.event.inputs.logLevel || 'INFO' }}
         run: |
           echo "Setting Matplotlib cache directory..."
@@ -86,12 +99,11 @@ jobs:
           python work_day_bot.py
           echo "Script execution finished."
 
-      # Upload generated image and screenshots as artifacts for debugging
       - name: Upload generated artifacts
         uses: actions/upload-artifact@v4
-        if: always() # Always run this step
+        if: always()
         with:
           name: attendance-artifacts-${{ github.run_id }}
           path: |
-            *.png  # Upload any PNG file (includes report image and screenshots)
-          if-no-files-found: ignore # Don't fail the workflow if no PNG files are found
+            *.png
+          if-no-files-found: ignore
