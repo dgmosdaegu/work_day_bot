@@ -1,0 +1,58 @@
+name: Daily Attendance Check
+
+on:
+  schedule:
+    # Runs at 23:00 UTC (8 AM KST next day) and 08:00 UTC (5 PM KST same day)
+    # Adjust cron times based on your desired KST execution times
+    # KST = UTC+9. Morning check (e.g., 9:30 AM KST) -> 00:30 UTC
+    # Evening check (e.g., 6:30 PM KST) -> 09:30 UTC
+    - cron: '30 0 * * *' # 00:30 UTC -> ~9:30 AM KST (Morning Check)
+    - cron: '30 9 * * *' # 09:30 UTC -> ~6:30 PM KST (Evening Check)
+  workflow_dispatch: # Allows manual triggering from the Actions tab
+
+jobs:
+  run_attendance_script:
+    runs-on: ubuntu-latest # Use the latest Ubuntu runner
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10' # Specify your desired Python version
+
+      - name: Install Google Chrome # Needed for Selenium
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
+      - name: Install Korean Fonts for Matplotlib # Crucial for image generation
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-nanum*
+          fc-cache -fv # Refresh font cache
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Attendance Check Script
+        env:
+          # Map GitHub Secrets to Environment Variables
+          WEBMAIL_USER: ${{ secrets.WEBMAIL_USER }}
+          WEBMAIL_PASS: ${{ secrets.WEBMAIL_PASS }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT: ${{ secrets.TELEGRAM_CHAT }}
+          # Set Matplotlib backend suitable for headless environment
+          MPLBACKEND: 'Agg'
+        run: python work_day.py
+
+      - name: Upload generated image on failure (optional debugging)
+        if: failure() # Only run this step if the previous 'Run' step failed
+        uses: actions/upload-artifact@v4
+        with:
+          name: attendance-table-image-on-failure
+          path: ./attendance_table.png # Path to the generated image
+          retention-days: 5 # Keep artifact for 5 days
