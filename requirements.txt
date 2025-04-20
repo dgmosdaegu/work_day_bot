@@ -1,7 +1,9 @@
 pandas
 requests
-selenium
+selenium>=4.0.0 # Specify version 4 or higher
 webdriver-manager
 matplotlib
 retrying
-openpyxl # Needed by pandas to read .xlsx files
+openpyxl
+pytz # Added for timezone handling fallback (if needed)
+zoneinfo; python_version >= "3.9" # Standard library for Python 3.9+
