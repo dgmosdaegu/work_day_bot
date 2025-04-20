@@ -1,3 +1,7 @@
+pandas
+requests
 selenium
 webdriver-manager
-requests
+matplotlib
+retrying
+openpyxl # Needed by pandas to read .xlsx files
