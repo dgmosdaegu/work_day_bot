@@ -1,36 +1,62 @@
-name: Daily Report Bot
+name: Daily Attendance Report
 
 on:
   schedule:
-    - cron: "0 23 * * *"  # 매일 한국 시간 오전 8시 (UTC 23시)
-  workflow_dispatch:
+    # Runs at 00:30 UTC (9:30 AM KST) and 09:30 UTC (6:30 PM KST) daily
+    # Adjust cron schedule as needed (minute hour day month day-of-week)
+    - cron: '30 0,9 * * *'
+  workflow_dispatch: # Allows manual triggering from GitHub Actions tab
 
 jobs:
-  report:
-    runs-on: ubuntu-latest
+  run-attendance-report:
+    runs-on: ubuntu-latest # Use a standard Linux runner
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: '3.10' # Specify Python version used for development/testing
 
-      - name: Install Chrome & Python dependencies
+      - name: Install system dependencies (Chrome, Fonts)
         run: |
+          # Install Chrome
           sudo apt-get update
-          sudo apt-get install -y wget unzip xvfb libnss3 libxss1 fonts-liberation
-          wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-          sudo dpkg -i google-chrome*.deb || sudo apt-get install -f -y
+          sudo apt-get install -y wget gnupg
+          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
+          sudo apt-get update
+          # Try installing a specific stable version if latest causes issues
+          # sudo apt-get install -y google-chrome-stable=VERSION_NUMBER
+          sudo apt-get install -y google-chrome-stable
+          # Install fonts for Matplotlib (Korean)
+          sudo apt-get install -y fonts-nanum*
+          # Verify Chrome install location (optional)
+          which google-chrome-stable
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run work_day_bot.py
-        env:
-          WEBMAIL_ID: ${{ secrets.WEBMAIL_ID }}
-          WEBMAIL_PW: ${{ secrets.WEBMAIL_PW }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      - name: Run Attendance Bot Script
+        env: # Map GitHub secrets to environment variables
+          WEBMAIL_USERNAME: ${{ secrets.WEBMAIL_USERNAME }}
+          WEBMAIL_PASSWORD: ${{ secrets.WEBMAIL_PASSWORD }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python work_day_bot.py
+          # Set Matplotlib cache directory to a writable location within the workspace
+          MPLCONFIGDIR: ${{ github.workspace }}/.cache/matplotlib
+        run: |
+          mkdir -p $MPLCONFIGDIR # Create cache dir for matplotlib
+          python work_day_bot.py # Ensure filename matches
 
-
+      # Optional: Upload generated image as artifact for debugging
+      - name: Upload Attendance Table Image (if exists)
+        uses: actions/upload-artifact@v4
+        if: failure() || success() # Upload on success or failure for inspection
+        with:
+          name: attendance-report-image-${{ github.run_id }}
+          path: attendance_table.png # Path to the generated image
+          if-no-files-found: ignore # Don't fail if image wasn't created
