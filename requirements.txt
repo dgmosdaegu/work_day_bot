@@ -1,8 +1,7 @@
 pandas
+openpyxl  # Needed by pandas to read .xlsx files
 requests
-selenium>=4.0.0
+selenium
 webdriver-manager
 matplotlib
 retrying
-openpyxl
-pytz
