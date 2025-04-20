@@ -1,8 +1,8 @@
 pandas
 requests
-selenium>=4.0.0 # Specify version 4 or higher
+selenium>=4.0.0
 webdriver-manager
 matplotlib
 retrying
 openpyxl
-pytz # Use pytz for timezone support (works on all Python versions)
+pytz
