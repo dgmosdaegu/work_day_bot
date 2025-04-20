@@ -42,15 +42,14 @@ jobs:
 
       - name: Run Attendance Bot Script
         env: # Map GitHub secrets to environment variables
-          WEBMAIL_USERNAME: ${{ secrets.WEBMAIL_USERNAME }}
-          WEBMAIL_PASSWORD: ${{ secrets.WEBMAIL_PASSWORD }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # Set Matplotlib cache directory to a writable location within the workspace
-          MPLCONFIGDIR: ${{ github.workspace }}/.cache/matplotlib
-        run: |
-          mkdir -p $MPLCONFIGDIR # Create cache dir for matplotlib
-          python work_day_bot.py # Ensure filename matches
+         WEBMAIL_USERNAME: ${{ secrets.WEBMAIL_USERNAME }} # Check this line
+         WEBMAIL_PASSWORD: ${{ secrets.WEBMAIL_PASSWORD }} # Check this line
+         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }} # Check this line
+         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }} # Check this line
+         MPLCONFIGDIR: ${{ github.workspace }}/.cache/matplotlib
+       run: |
+         mkdir -p $MPLCONFIGDIR # Create cache dir for matplotlib
+         python work_day_bot.py # Ensure filename matches
 
       # Optional: Upload generated image as artifact for debugging
       - name: Upload Attendance Table Image (if exists)
