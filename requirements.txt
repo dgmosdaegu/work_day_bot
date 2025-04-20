@@ -5,5 +5,4 @@ webdriver-manager
 matplotlib
 retrying
 openpyxl
-pytz # Added for timezone handling fallback (if needed)
-zoneinfo; python_version >= "3.9" # Standard library for Python 3.9+
+pytz # Use pytz for timezone support (works on all Python versions)
