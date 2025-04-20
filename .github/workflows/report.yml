@@ -20,11 +20,10 @@ jobs:
       - name: Install Chrome & Python dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget unzip xvfb libnss3 libxss1 libasound2 fonts-liberation
+          sudo apt-get install -y wget unzip xvfb libnss3 libxss1 fonts-liberation
           wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
           sudo dpkg -i google-chrome*.deb || sudo apt-get install -f -y
           pip install -r requirements.txt
-
 
       - name: Run work_day_bot.py
         env:
@@ -33,4 +32,5 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python work_day_bot.py
+
 
