@@ -1,7 +1,0 @@
-pandas
-openpyxl  # Needed by pandas to read .xlsx files
-requests
-selenium
-webdriver-manager
-matplotlib
-retrying
