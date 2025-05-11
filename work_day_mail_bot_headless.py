@@ -12,7 +12,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import (
     TimeoutException, NoSuchElementException, WebDriverException, NoSuchWindowException
 )
-from selenium.webdriver.common.action_chains import ActionChains # 메일 본문 입력 시 필요할 수 있음 (현재는 텔레그램 사용)
+# from selenium.webdriver.common.action_chains import ActionChains # 현재 직접 사용 안 함
 from webdriver_manager.chrome import ChromeDriverManager
 import logging
 import io
@@ -26,12 +26,10 @@ import os
 import subprocess
 
 # --- Configuration ---
-# 기본 설정값은 참고용. 실제 중요한 값들은 환경 변수에서 가져옴.
 DEFAULT_CONFIG = {
     "WEBMAIL_USERNAME": "", "WEBMAIL_PASSWORD": "",
-    "TELEGRAM_BOT_TOKEN": "", "TELEGRAM_CHAT_ID": "", # 텔레그램 설정 추가
-    "SENDER_NAME": "근태 확인 봇", # 텔레그램 메시지 제목 등에 활용 가능
-    # 스케줄은 GitHub Actions cron으로 대체되므로 여기서 사용 안 함
+    "TELEGRAM_BOT_TOKEN": "", "TELEGRAM_CHAT_ID": "",
+    "SENDER_NAME": "근태 확인 봇",
 }
 
 # --- 경로 설정 강화 (기존 로직 유지) ---
@@ -55,7 +53,7 @@ else:
         user_home_documents = os.path.join(Path.home(), "Documents")
         if not os.path.isdir(user_home_documents):
             _path_source_info_lines.append(f"경고: 표준 '내 문서' 폴더를 찾을 수 없습니다 ('{user_home_documents}').")
-            _final_user_data_path = "" # 폴백으로 이어지도록
+            _final_user_data_path = ""
         else:
             program_specific_folder = os.path.join(user_home_documents, "ktMOS", PROGRAM_EXECUTABLE_NAME)
             _final_user_data_path = program_specific_folder
@@ -82,11 +80,11 @@ if _final_user_data_path:
 
 if not _path_set_and_validated:
     fallback_base_dir = ""
-    if hasattr(sys, '_MEIPASS'): # PyInstaller 번들
+    if hasattr(sys, '_MEIPASS'):
         fallback_base_dir = os.path.dirname(sys.executable)
-    elif os.getenv('GITHUB_WORKSPACE'): # GitHub Actions 환경
+    elif os.getenv('GITHUB_WORKSPACE'):
         fallback_base_dir = os.getenv('GITHUB_WORKSPACE')
-    else: # 일반 스크립트 실행
+    else:
         fallback_base_dir = os.path.dirname(os.path.abspath(__file__))
 
     _final_user_data_path = fallback_base_dir
@@ -96,22 +94,20 @@ if not _path_set_and_validated:
             os.makedirs(_final_user_data_path, exist_ok=True)
             _path_source_info_lines.append(f"INFO: 대체 사용자 데이터 디렉토리 생성: {_final_user_data_path}")
     except Exception as e_fallback_create:
-        _final_user_data_path = os.getcwd() # 최후의 수단
+        _final_user_data_path = os.getcwd()
         _path_source_info_lines.append(f"심각: 대체 디렉토리를 생성할 수 없습니다. 오류: {e_fallback_create}. 현재 작업 디렉토리를 사용합니다: {_final_user_data_path}")
 
 USER_DATA_PATH = _final_user_data_path
-CONFIG_FILE = os.path.join(USER_DATA_PATH, "work_day_config_headless.json") # 설정 파일 이름 변경 가능
+CONFIG_FILE = os.path.join(USER_DATA_PATH, "work_day_config_headless.json")
 LOG_FILE = os.path.join(USER_DATA_PATH, 'attendance_bot_headless.log')
-
-# DRIVERS_DIR 및 ICON_FILE은 GUI가 없으므로 중요도 낮음. APP_ROOT_PATH는 참고용.
-DRIVERS_DIR = os.path.join(APP_ROOT_PATH, 'drivers') # webdriver-manager 사용 시 덜 중요
-ICON_FILE = os.path.join(APP_ROOT_PATH, 'work_day.ico') # 사용 안함
+DRIVERS_DIR = os.path.join(APP_ROOT_PATH, 'drivers')
+ICON_FILE = os.path.join(APP_ROOT_PATH, 'work_day.ico')
 
 # --- 로깅 설정 ---
 logging.basicConfig(level=logging.INFO,
                     handlers=[
                         logging.FileHandler(LOG_FILE, mode='a', encoding='utf-8'),
-                        logging.StreamHandler(sys.stdout) # 콘솔(GitHub Actions 로그)에도 출력
+                        logging.StreamHandler(sys.stdout)
                     ],
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -132,9 +128,9 @@ STD_MORNING_LEAVE_WORK_START = datetime.time(14, 0)
 STD_AFTERNOON_LEAVE_WORK_END = datetime.time(14, 0)
 
 # --- Helper Functions ---
-def log_message(message, level="INFO"): # log_to_gui 대체
-    timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-    formatted_message = f"[{timestamp} {level}] {message}"
+def log_message(message, level="INFO"):
+    # timestamp = datetime.datetime.now().strftime("%H:%M:%S") # 로깅 프레임워크가 시간 자동 추가
+    # formatted_message = f"[{timestamp} {level}] {message}"
     if level == "ERROR":
         logging.error(message)
     elif level == "WARNING":
@@ -145,9 +141,6 @@ def log_message(message, level="INFO"): # log_to_gui 대체
         logging.info(message)
 
 def get_chrome_version():
-    # GitHub Actions 환경에서는 Chrome이 미리 설치되어 있을 수 있으므로,
-    # 버전 확인이 실패해도 webdriver-manager가 처리하도록 유도 가능.
-    # 로컬 실행 시에는 이 함수가 유용.
     try:
         if sys.platform == "win32":
             program_files_x86 = os.environ.get('ProgramFiles(x86)')
@@ -159,21 +152,20 @@ def get_chrome_version():
             elif chrome_path_pf and os.path.exists(chrome_path_pf): chrome_exe_path = chrome_path_pf
             else: log_message("Chrome not found in standard Windows locations.", "WARNING"); return None
             cmd = f'powershell -command "(Get-Item \\"{chrome_exe_path}\\").VersionInfo.ProductVersion"'
-            result = subprocess.run(cmd, capture_output=True, text=True, shell=True, check=False, encoding='utf-8') # check=False로 변경
-        elif sys.platform.startswith("linux"): # GitHub Actions (Ubuntu)
+            result = subprocess.run(cmd, capture_output=True, text=True, shell=True, check=False, encoding='utf-8')
+        elif sys.platform.startswith("linux"):
             cmd = 'google-chrome --version'
             result = subprocess.run(cmd, capture_output=True, text=True, shell=True, check=False)
-        else: # macOS 등
-            # macOS에서는 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --version
+        else:
             log_message(f"Chrome version check not implemented for {sys.platform}", "WARNING")
-            return None # webdriver-manager가 알아서 하도록
+            return None
 
         if result.returncode != 0 or not result.stdout:
             log_message(f"Chrome version command failed or returned empty. stderr: {result.stderr}", "ERROR")
             return None
 
         version_str = result.stdout.strip()
-        if "Google Chrome" in version_str: # Linux 출력 예: "Google Chrome 110.0.5481.77"
+        if "Google Chrome" in version_str:
             version_str = version_str.split("Google Chrome ")[-1]
 
         log_message(f"Chrome version string: {version_str}")
@@ -190,36 +182,45 @@ def get_chrome_version():
 def setup_driver():
     log_message("Setting up ChromeDriver...")
     options = webdriver.ChromeOptions()
-    options.add_argument("--headless") # Headless 모드 필수
+    options.add_argument("--headless")
     options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox") # Linux 환경(GitHub Actions)에서 중요
-    options.add_argument("--disable-dev-shm-usage") # Linux 환경에서 공유 메모리 문제 방지
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
-    # User-Agent는 필요에 따라 설정
-    # chrome_major_version = get_chrome_version() # get_chrome_version이 불안정할 수 있으므로, 고정 UA 또는 webdriver-manager에 의존
-    # ua_version = chrome_major_version if chrome_major_version else 118 # 최신 안정 버전으로 가정
-    options.add_argument(f"user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36")
+    options.add_argument("--disable-extensions") # 추가된 옵션
+    # User-Agent는 고정하거나, get_chrome_version()의 결과를 신뢰할 수 있을 때 동적으로 설정
+    # 현재는 안정성을 위해 고정된 최신 버전대 User-Agent 사용
+    options.add_argument(f"user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36") # 예시 최신 UA
     options.add_experimental_option("excludeSwitches", ["enable-logging"])
     prefs = {"credentials_enable_service": False, "profile.password_manager_enabled": False}
     options.add_experimental_option("prefs", prefs)
+
+    # ChromeDriver 로그 활성화 (디버깅용)
+    # service_args = ['--verbose', f'--log-path={os.path.join(USER_DATA_PATH, "chromedriver.log")}'] # USER_DATA_PATH 사용
+    service_args = [] # 기본값은 로그 없음
 
     service = None
     try:
         log_message("Attempting to install/setup ChromeDriver using webdriver-manager...")
         try:
-            service = Service(ChromeDriverManager().install())
-        except Exception as wdm_error: # webdriver_manager에서 특정 버전 찾기 실패 등
+            service = Service(ChromeDriverManager().install(), service_args=service_args)
+        except Exception as wdm_error:
             log_message(f"webdriver-manager failed: {wdm_error}", "ERROR")
             log_message(f"Attempting to use ChromeDriverManager with a generic version.", "WARNING")
-            try: # 특정 버전 지정 없이 시도
-                service = Service(ChromeDriverManager().install())
+            try:
+                service = Service(ChromeDriverManager().install(), service_args=service_args)
             except Exception as wdm_fallback_error:
                 log_message(f"webdriver-manager fallback also failed: {wdm_fallback_error}", "ERROR")
                 raise Exception(f"webdriver-manager failed to provide a ChromeDriver: {wdm_fallback_error}")
 
         log_message(f"Initializing WebDriver with service path: {service.path if service else 'N/A'}")
         driver = webdriver.Chrome(service=service, options=options)
-        driver.implicitly_wait(15) # 암시적 대기 시간 증가
+        
+        # === 페이지 로드 타임아웃 설정 ===
+        driver.set_page_load_timeout(180) # 180초 (3분)으로 설정
+        # ===============================
+        
+        driver.implicitly_wait(20) # 암시적 대기 시간 약간 증가 (기존 15초)
         log_message("ChromeDriver and WebDriver setup complete.")
         return driver
     except WebDriverException as e:
@@ -233,30 +234,45 @@ def setup_driver():
         raise
 
 def login_and_get_cookies(driver, url, username_id, password_id, username, password):
-    log_message(f"Navigating to login page: {url}"); driver.get(url); wait = WebDriverWait(driver, 45); time.sleep(3) # 대기 시간 증가
+    log_message(f"Navigating to login page: {url}")
+    try:
+        driver.get(url) # 페이지 로드 타임아웃은 setup_driver에서 설정됨
+    except TimeoutException as e: # driver.get() 에서 페이지 로드 타임아웃 발생 시
+        log_message(f"Page load timeout for {url}: {e}", "ERROR")
+        # 스크린샷 저장 (GitHub Actions에서는 아티팩트로 저장해야 확인 가능)
+        screenshot_path = os.path.join(USER_DATA_PATH, f"pageload_timeout_screenshot_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+        try:
+            driver.save_screenshot(screenshot_path)
+            log_message(f"Screenshot saved to {screenshot_path} due to page load timeout.", "INFO")
+        except Exception as scr_err:
+            log_message(f"Failed to save screenshot on page load timeout: {scr_err}", "WARNING")
+        raise Exception(f"페이지 로드 타임아웃 ({driver.get_timeouts()['pageLoad'] / 1000}초 초과): {url}") from e # 원본 예외 포함하여 다시 발생
+
+
+    wait = WebDriverWait(driver, 60) # 요소 대기 시간 기존 45에서 60으로 증가
+    time.sleep(5) # 페이지 렌더링 및 JS 실행 대기 시간 기존 3에서 5로 증가
     try:
         user_field = wait.until(EC.visibility_of_element_located((By.ID, username_id)));
         pw_field = wait.until(EC.visibility_of_element_located((By.ID, password_id)))
         user_field.clear(); time.sleep(0.2); user_field.send_keys(username); time.sleep(0.5)
         pw_field.clear(); time.sleep(0.2); pw_field.send_keys(password); time.sleep(0.5)
         pw_field.send_keys(Keys.RETURN); log_message(f"Submitted login.")
-        post_login_locator = (By.ID, "btnWrite") # 메일 쓰기 버튼으로 로그인 성공 확인
-        wait.until(EC.presence_of_element_located(post_login_locator)); log_message("Login successful (Mail page loaded)."); time.sleep(2)
+        post_login_locator = (By.ID, "btnWrite")
+        wait.until(EC.presence_of_element_located((post_login_locator))); log_message("Login successful (Mail page loaded)."); time.sleep(2)
         cookies = {c['name']: c['value'] for c in driver.get_cookies()}; log_message(f"Extracted {len(cookies)} cookies."); return cookies
-    except TimeoutException:
+    except TimeoutException: # 요소 대기 타임아웃
         current_url = driver.current_url; log_message(f"Timeout waiting for post-login element ({post_login_locator[1]}). URL: {current_url}", "WARNING")
-        # 스크린샷 저장 (GitHub Actions에서는 아티팩트로 저장 필요)
-        # screenshot_path = os.path.join(USER_DATA_PATH, f"login_timeout_screenshot_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-        # try:
-        #     driver.save_screenshot(screenshot_path)
-        #     log_message(f"Screenshot saved to {screenshot_path}", "INFO")
-        # except Exception as scr_err:
-        #     log_message(f"Failed to save screenshot: {scr_err}", "WARNING")
+        screenshot_path = os.path.join(USER_DATA_PATH, f"login_element_timeout_screenshot_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+        try:
+            driver.save_screenshot(screenshot_path)
+            log_message(f"Screenshot saved to {screenshot_path}", "INFO")
+        except Exception as scr_err:
+            log_message(f"Failed to save screenshot: {scr_err}", "WARNING")
 
         login_page_check_url = url.split('?')[0]
         if login_page_check_url in current_url:
             found_error = None;
-            try: # 로그인 실패 메시지 확인
+            try:
                 err_elements = driver.find_elements(By.CSS_SELECTOR, ".login_box .error, .error_msg, #errormsg, .warning, .alert, [class*='error'], [id*='error']")
                 for el in err_elements:
                     if el.is_displayed() and el.text.strip(): found_error = el.text.strip(); log_message(f"Login failure message on page: '{found_error}'", "ERROR"); break
@@ -271,30 +287,29 @@ def login_and_get_cookies(driver, url, username_id, password_id, username, passw
 
 def download_excel_report(report_url, cookies):
     log_message(f"Downloading report: {report_url}"); session = requests.Session(); session.cookies.update(cookies)
-    user_agent_string = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36' # Consistent UA
+    user_agent_string = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' # setup_driver와 일치 권장
     headers = { 'User-Agent': user_agent_string, 'Referer': WEBMAIL_LOGIN_URL.split('/mail2')[0]};
     log_message(f"Using User-Agent for download: {user_agent_string}", "DEBUG")
     try:
-        response = session.get(report_url, headers=headers, stream=True, timeout=120); # 타임아웃 증가
+        response = session.get(report_url, headers=headers, stream=True, timeout=120);
         log_message(f"Download HTTP status: {response.status_code}"); response.raise_for_status()
         content_type = response.headers.get('Content-Type', '').lower();
         is_excel = any(m in content_type for m in ['excel', 'spreadsheetml', 'vnd.ms-excel', 'octet-stream'])
         if is_excel:
             excel_data = io.BytesIO(response.content); file_size = excel_data.getbuffer().nbytes; log_message(f"Downloaded Excel data ({file_size} bytes).")
-            if file_size < 1024: # 1KB 미만이면 내용 확인
+            if file_size < 1024:
                 log_message(f"Small file ({file_size} bytes). Checking content for potential errors.", "WARNING");
                 try:
                     preview = excel_data.getvalue()[:500].decode('utf-8', errors='ignore')
                     if any(kw in preview.lower() for kw in ['error', '오류', '로그인', '권한', '세션', 'login', 'session', 'invalid']):
                         log_message(f"Small file content suggests error: {preview}", "ERROR"); return None
                 except Exception as prev_err: log_message(f"Small file preview check failed: {prev_err}", "WARNING");
-                excel_data.seek(0) # 미리보기 후 포인터 초기화
+                excel_data.seek(0)
             return excel_data
         else:
             log_message(f"Downloaded content type is not Excel. Type: {content_type}", "ERROR")
-            # 내용을 텍스트로 찍어보기
             try:
-                error_content = response.text[:1000] # 처음 1000자
+                error_content = response.text[:1000]
                 log_message(f"Non-excel content preview: {error_content}", "DEBUG")
             except Exception as text_err:
                 log_message(f"Could not get text preview of non-excel content: {text_err}", "WARNING")
@@ -302,7 +317,6 @@ def download_excel_report(report_url, cookies):
     except requests.exceptions.RequestException as e: log_message(f"Download error: {e}", "ERROR"); logging.exception("Download error:"); return None
     except Exception as e: log_message(f"Unexpected download error: {e}", "ERROR"); logging.exception("Download unexpected error:"); return None
 
-# parse_time_robust, parse_date_robust, combine_date_time 함수는 기존과 동일하게 사용 가능
 def parse_time_robust(time_str):
     if pd.isna(time_str) or time_str == '-': return None; time_str = str(time_str).strip()
     if isinstance(time_str, datetime.time): return time_str;
@@ -324,7 +338,7 @@ def parse_date_robust(date_str):
     except ValueError: pass
     try:
         numeric_date = float(date_part)
-        if 30000 < numeric_date < 60000: # Excel 날짜 숫자 범위 근사치
+        if 30000 < numeric_date < 60000:
              return pd.to_datetime(numeric_date, unit='D', origin='1899-12-30').date()
     except (ValueError, TypeError): pass
     log_message(f"Could not parse date: {date_str}", "DEBUG")
@@ -336,17 +350,16 @@ def combine_date_time(date_val, time_val):
     return None
 
 def analyze_attendance(excel_data, sheet_name, target_date):
-    # 이 함수는 기존 로직과 거의 동일하게 유지. log_to_gui를 log_message로 변경
     log_message(f"Analyzing sheet '{sheet_name}' for {target_date.strftime('%Y-%m-%d')}.")
     target_date_str = target_date.strftime('%Y-%m-%d')
     analysis_result = {
-        "notifications": [], # 사용 안 할 수 있음
+        "notifications": [],
         "summary": {
             "total_employees": 0, "target": 0, "excluded": 0,
             "clocked_in": 0, "missing_in": 0, "clocked_out": 0, "missing_out": 0
         },
         "plain_text_report": "",
-        "team_name": "팀" # 기본 팀 이름
+        "team_name": "팀"
     }
     employee_statuses = {}
 
@@ -367,15 +380,14 @@ def analyze_attendance(excel_data, sheet_name, target_date):
             if level0 and level1 and level0 != level1: new_col = f"{level0}_{level1}"
             elif level1: new_col = level1
             elif level0: new_col = level0
-            else: new_col = f"col_{len(new_columns)}" # 이름 없는 컬럼 처리
+            else: new_col = f"col_{len(new_columns)}"
             new_columns.append(new_col.strip('_'))
         df.columns = new_columns; log_message(f"Flattened columns: {df.columns.tolist()}", "DEBUG")
         if df.empty: log_message("Excel sheet empty.", "WARNING"); analysis_result["plain_text_report"] = f"{target_date_str} 분석 정보\n데이터 없음."; return analysis_result
 
-        # 컬럼 매핑 (엑셀 파일 형식에 따라 매우 중요)
         column_mapping = {
             'erp': ['ERP사번'], 'name': ['이름'], 'date': ['일자'],
-            'dept': ['부서'], # 부서 컬럼이 있다면 사용
+            'dept': ['부서'],
             'type': ['근태_유형', '유형'], 'category': ['근태_구분', '구분'],
             'clock_in_time': ['출퇴근_출근시간', '출근시간'], 'clock_out_time': ['출퇴근_퇴근시간', '퇴근시간'],
             'leave_start_time': ['휴가/출장/교육 일시_시작시간', '시작시간'], 'leave_end_time': ['휴가/출장/교육 일시_종료시간', '종료시간'],
@@ -384,14 +396,14 @@ def analyze_attendance(excel_data, sheet_name, target_date):
         dept_column_original_name = None
         for key, potential_names in column_mapping.items():
             found = False
-            for name in [p.strip() for p in potential_names]: # 공백 제거
+            for name in [p.strip() for p in potential_names]:
                 for idx, col_name in enumerate(original_columns):
-                    if name.lower() == col_name.lower(): # 대소문자 구분 없이 비교
+                    if name.lower() == col_name.lower():
                         col_indices[key] = idx
-                        if key == 'dept': dept_column_original_name = col_name # 실제 부서 컬럼명 저장
+                        if key == 'dept': dept_column_original_name = col_name
                         found = True; break
                 if found: break
-            if not found and key != 'dept': # 부서는 선택 사항
+            if not found and key != 'dept':
                  missing_cols.append(f"{key} (tried: {', '.join(potential_names)})")
             elif not found and key == 'dept':
                  log_message("Optional '부서' column not found, will use default team name.", "WARNING")
@@ -403,7 +415,6 @@ def analyze_attendance(excel_data, sheet_name, target_date):
             analysis_result["plain_text_report"] = f"{target_date_str} 분석 오류\n필수 컬럼 누락: {', '.join(missing_cols)}\n사용 가능한 컬럼: {original_columns}"
             return analysis_result
 
-        # ERP, 이름 컬럼은 데이터 채우기 (ffill)
         erp_col_name = df.columns[col_indices['erp']]; name_col_name = df.columns[col_indices['name']]
         if erp_col_name in df.columns: df[erp_col_name] = df[erp_col_name].astype(str).replace('nan', '').ffill().fillna('')
         if name_col_name in df.columns: df[name_col_name] = df[name_col_name].astype(str).replace('nan', '').ffill().fillna('')
@@ -416,11 +427,11 @@ def analyze_attendance(excel_data, sheet_name, target_date):
             df.columns[col_indices['leave_end_time']]: '휴가종료시간_raw',
         }
         dept_col_name_target = '부서_raw'
-        if dept_column_original_name: # 부서 컬럼이 실제로 존재하면 매핑에 추가
+        if dept_column_original_name:
             select_rename_map[dept_column_original_name] = dept_col_name_target
             log_message(f"Mapping original column '{dept_column_original_name}' to '{dept_col_name_target}' for department.", "DEBUG")
         else:
-            dept_col_name_target = None # 부서 컬럼 사용 안 함
+            dept_col_name_target = None
 
         source_columns_to_keep = list(select_rename_map.keys())
         missing_source_cols = [col for col in source_columns_to_keep if col not in df.columns]
@@ -453,12 +464,10 @@ def analyze_attendance(excel_data, sheet_name, target_date):
         analysis_result["summary"]["total_employees"] = employee_names.nunique()
         log_message(f"Total employees identified for {target_date_str}: {analysis_result['summary']['total_employees']} (based on unique names)")
 
-        # 팀 이름 추출 로직 (기존과 동일)
-        team_name = "팀" # 기본값
+        team_name = "팀"
         if dept_col_name_target and dept_col_name_target in df_filtered_by_date.columns and not df_filtered_by_date.empty:
             try:
-                if df_filtered_by_date.index.size > 0: # 데이터가 있는지 확인
-                    # 첫 번째 유효한 부서명을 가져옴 (모든 직원이 같은 부서라고 가정)
+                if df_filtered_by_date.index.size > 0:
                     dept_full_name_series = df_filtered_by_date[dept_col_name_target].dropna()
                     if not dept_full_name_series.empty:
                         dept_full_name_obj = dept_full_name_series.iloc[0]
@@ -470,8 +479,8 @@ def analyze_attendance(excel_data, sheet_name, target_date):
                             split_parts = [p.strip() for p in parts if p.strip()]
                             log_message(f"Split result for '{dept_full_name}' using '-': {split_parts}", "DEBUG")
                             if len(split_parts) > 1: team_name = split_parts[1]
-                            elif split_parts: team_name = split_parts[0] # '-' 뒤가 없으면 앞부분 사용
-                        elif dept_full_name and len(dept_full_name) < 20 : # '-'가 없고 너무 길지 않으면 전체 사용
+                            elif split_parts: team_name = split_parts[0]
+                        elif dept_full_name and len(dept_full_name) < 20 :
                             team_name = dept_full_name
                         else:
                             log_message(f"Department string format not suitable or missing '-': '{dept_full_name}'. Using default team name.", "WARNING")
@@ -490,15 +499,12 @@ def analyze_attendance(excel_data, sheet_name, target_date):
         analysis_result['team_name'] = team_name
         log_message(f"Final team name stored in analysis_result: '{analysis_result['team_name']}'", "INFO")
 
-
-        # --- 직원별 분석 로직 (기존과 동일, log_to_gui -> log_message) ---
-        # ERP ID 기준으로 그룹화
         df_filtered_by_date['ERP_ID_Clean'] = df_filtered_by_date['ERP_ID'].astype(str).str.strip().replace(r'^(nan|None|)$', '', regex=True)
         valid_erp_rows_df = df_filtered_by_date[df_filtered_by_date['ERP_ID_Clean'] != ''].copy()
 
         if valid_erp_rows_df.empty:
             log_message("No rows with valid ERP IDs found after filtering. Cannot process details.", "WARNING")
-            grouped_by_erp = pd.DataFrame().groupby(None) # 빈 그룹
+            grouped_by_erp = pd.DataFrame().groupby(None)
             num_groups_processed = 0
         else:
             grouped_by_erp = valid_erp_rows_df.groupby('ERP_ID_Clean', sort=False)
@@ -508,7 +514,7 @@ def analyze_attendance(excel_data, sheet_name, target_date):
 
         for erp_id, group_df in grouped_by_erp:
             display_name = str(group_df['이름'].iloc[0]).strip();
-            if not display_name: display_name = f"ID:{erp_id}" # 이름이 없는 경우 ERP ID로 대체
+            if not display_name: display_name = f"ID:{erp_id}"
 
             collected_leaves = []; attendance_data = {'clock_in': None, 'clock_out': None, 'raw_in': '', 'raw_out': ''}
             for _, row in group_df.iterrows():
@@ -519,36 +525,34 @@ def analyze_attendance(excel_data, sheet_name, target_date):
                 if att_type in LEAVE_ACTIVITY_TYPES:
                     desc = f"{att_type} ({att_cat})" if att_cat and att_cat != '-' else att_type
                     collected_leaves.append({'type': att_type, 'category': att_cat, 'start': l_start, 'end': l_end, 'desc': desc})
-                if att_type == NORMAL_WORK_TYPE: # "출퇴근" 유형
-                    if c_in and not attendance_data['clock_in']: # 첫 출근 기록만 인정
+                if att_type == NORMAL_WORK_TYPE:
+                    if c_in and not attendance_data['clock_in']:
                         attendance_data['clock_in'] = c_in
                         attendance_data['raw_in'] = str(row.get('출근시간_raw', ''))
-                    if c_out: # 퇴근은 마지막 기록으로 덮어쓰기 가능 (또는 필요시 로직 수정)
+                    if c_out:
                         attendance_data['clock_out'] = c_out
                         attendance_data['raw_out'] = str(row.get('퇴근시간_raw', ''))
 
-            # 휴가/제외 로직 (기존과 유사)
             is_excluded = False; covers_morn = False; covers_aft = False;
-            is_spec_morn_half = False; is_spec_aft_half = False # 명시적 반차 여부
-            min_l_start_actual = STD_WORK_END_TIME; max_l_end_actual = STD_WORK_START_TIME # 실제 휴가 시간 범위
-            leave_descs = set() # 휴가 종류 설명 집합
+            is_spec_morn_half = False; is_spec_aft_half = False
+            min_l_start_actual = STD_WORK_END_TIME; max_l_end_actual = STD_WORK_START_TIME
+            leave_descs = set()
             took_any_leave = bool(collected_leaves)
 
             if collected_leaves:
                 for leave in collected_leaves:
                     ls, le, cat, desc = leave['start'], leave['end'], leave['category'], leave['desc']
-                    leave_descs.add(desc); is_m = False; is_a = False # 이번 휴가가 오전/오후 커버하는지
+                    leave_descs.add(desc); is_m = False; is_a = False
 
                     if cat == MORNING_HALF_LEAVE_REASON: is_m = True; is_spec_morn_half = True
                     elif cat == AFTERNOON_HALF_LEAVE_REASON: is_a = True; is_spec_aft_half = True
                     elif cat in FULL_DAY_REASONS:
-                        # 종일 휴가인데 시간이 이상하게 찍힌 경우 (예: 09:00-09:00) 제외
                         if not (ls and le and (ls > STD_WORK_START_TIME or le < STD_WORK_END_TIME)):
                             is_m = True; is_a = True
-                    elif ls and le: # 시간 범위가 있는 휴가
-                        if ls <= STD_WORK_START_TIME and le >= STD_LUNCH_START_TIME: is_m = True # 오전 근무 시간 커버
-                        if ls < STD_WORK_END_TIME and le >= STD_LUNCH_END_TIME: is_a = True # 오후 근무 시간 커버
-                    elif ls and not le and leave['type'] == '출장': # 출장인데 종료시간이 없는 경우 종일로 간주
+                    elif ls and le:
+                        if ls <= STD_WORK_START_TIME and le >= STD_LUNCH_START_TIME: is_m = True
+                        if ls < STD_WORK_END_TIME and le >= STD_LUNCH_END_TIME: is_a = True
+                    elif ls and not le and leave['type'] == '출장':
                         is_m = True; is_a = True
 
                     if is_m: covers_morn = True
@@ -557,17 +561,16 @@ def analyze_attendance(excel_data, sheet_name, target_date):
                     if le and le > max_l_end_actual: max_l_end_actual = le
 
             leave_detail_for_report = ""
-            if covers_morn and covers_aft: # 오전, 오후 모두 휴가 등으로 커버되면 제외 대상
+            if covers_morn and covers_aft:
                 is_excluded = True
                 comb_desc = " + ".join(sorted(list(leave_descs)))
                 time_str = ""
-                # 종일 유형인지, 아니면 시간 범위인지 표시
                 is_full_day_type = any(c in FULL_DAY_REASONS or l['type'] == '출장' for l in collected_leaves for c in [l['category']])
                 if is_full_day_type : time_str = " (종일)"
                 elif min_l_start_actual != STD_WORK_END_TIME and max_l_end_actual != STD_WORK_START_TIME :
                     time_str = f" ({min_l_start_actual.strftime('%H:%M')} - {max_l_end_actual.strftime('%H:%M')})"
                 leave_detail_for_report = f"{comb_desc}{time_str}"
-            elif took_any_leave: # 일부만 휴가인 경우
+            elif took_any_leave:
                  leave_detail_for_report = " + ".join(sorted(list(leave_descs)))
 
 
@@ -580,12 +583,11 @@ def analyze_attendance(excel_data, sheet_name, target_date):
                 'leave_details': leave_detail_for_report,
                 'has_clock_in': False,
                 'has_clock_out': False,
-                'in_time_str': "-", # 보고서용 출근 시간 문자열
-                'out_time_str': "-", # 보고서용 퇴근 시간 문자열
-                'issue_types': [] # 지각, 조퇴 등
+                'in_time_str': "-",
+                'out_time_str': "-",
+                'issue_types': []
             }
 
-            # 확인 대상 직원에 대한 처리
             if not is_excluded:
                 c_in_dt = attendance_data['clock_in']; c_out_dt = attendance_data['clock_out'];
                 act_start = combine_date_time(target_date, c_in_dt) if c_in_dt else None;
@@ -594,91 +596,73 @@ def analyze_attendance(excel_data, sheet_name, target_date):
                 employee_statuses[display_name]['has_clock_in'] = has_in
                 employee_statuses[display_name]['has_clock_out'] = has_out
 
-                # 예상 근무 시작/종료 시간 계산 (휴가 고려)
                 exp_start_time = STD_WORK_START_TIME
-                if is_spec_morn_half: exp_start_time = STD_MORNING_LEAVE_WORK_START # 명시적 오전반차
-                elif covers_morn: exp_start_time = STD_LUNCH_END_TIME # 그 외 오전 커버 휴가
+                if is_spec_morn_half: exp_start_time = STD_MORNING_LEAVE_WORK_START
+                elif covers_morn: exp_start_time = STD_LUNCH_END_TIME
 
                 exp_end_time = STD_WORK_END_TIME
-                if is_spec_aft_half: exp_end_time = STD_AFTERNOON_LEAVE_WORK_END # 명시적 오후반차
-                elif covers_aft: # 그 외 오후 커버 휴가 시, 실제 오후 휴가 시작 시간을 기준으로 예상 퇴근 시간 조정
+                if is_spec_aft_half: exp_end_time = STD_AFTERNOON_LEAVE_WORK_END
+                elif covers_aft:
                     min_afternoon_leave_start = STD_WORK_END_TIME; found_afternoon_start = False
                     for leave in collected_leaves:
                         ls = leave.get('start')
-                        if ls and ls >= STD_LUNCH_START_TIME: # 점심시간 이후 시작하는 휴가만 고려
+                        if ls and ls >= STD_LUNCH_START_TIME:
                             le = leave.get('end'); does_cover_afternoon = False; l_cat = leave.get('category', ''); l_type = leave.get('type', '')
                             if l_cat == AFTERNOON_HALF_LEAVE_REASON: does_cover_afternoon = True
-                            elif l_cat in FULL_DAY_REASONS: does_cover_afternoon = True # 오후반차 외 종일휴가도 오후 커버
+                            elif l_cat in FULL_DAY_REASONS: does_cover_afternoon = True
                             elif ls < STD_WORK_END_TIME and le and le >= STD_LUNCH_END_TIME: does_cover_afternoon = True
-                            elif ls < STD_WORK_END_TIME and not le and l_type == '출장': does_cover_afternoon = True # 종료시간 없는 출장
+                            elif ls < STD_WORK_END_TIME and not le and l_type == '출장': does_cover_afternoon = True
                             if does_cover_afternoon and ls < min_afternoon_leave_start:
                                 min_afternoon_leave_start = ls; found_afternoon_start = True
                     if found_afternoon_start and min_afternoon_leave_start < STD_WORK_END_TIME:
                         exp_end_time = min_afternoon_leave_start
-                    elif covers_aft and not found_afternoon_start: # 오후를 커버하지만, 구체적인 오후 휴가 시작 시간 못찾음 (예: 교육)
-                        exp_end_time = STD_LUNCH_START_TIME # 점심시간까지만 근무로 간주
+                    elif covers_aft and not found_afternoon_start:
+                        exp_end_time = STD_LUNCH_START_TIME
 
 
                 exp_start_dt = datetime.datetime.combine(target_date, exp_start_time)
                 exp_end_dt = datetime.datetime.combine(target_date, exp_end_time)
                 log_message(f"Debug {display_name}: covers_morn={covers_morn}, covers_aft={covers_aft}, spec_morn={is_spec_morn_half}, spec_aft={is_spec_aft_half} => Exp Start={exp_start_time}, Exp End={exp_end_time}", "DEBUG")
 
+                issue_type_flags = []
 
-                current_issues = [] # 텍스트 설명용 (사용 안 함, issue_types로 대체)
-                issue_type_flags = [] # 보고서용 flag
-
-                # 출근 확인
                 if has_in:
-                    if act_start > exp_start_dt: # 예상 출근시간보다 늦음
-                        # start_info = f"({exp_start_time.strftime('%H:%M')}부터) " if exp_start_time != STD_WORK_START_TIME else ""
-                        # leave_prefix = "오전휴가 후 " if covers_morn else ""
-                        # current_issues.append(f"{leave_prefix}{start_info}지각: {c_in_dt.strftime('%H:%M:%S')}")
+                    if act_start > exp_start_dt:
                         issue_type_flags.append("지각")
-                elif not covers_morn: # 오전 휴가도 없는데 출근 기록 없음
-                     # current_issues.append("출근 기록 없음")
+                elif not covers_morn:
                      issue_type_flags.append("출근 기록 없음")
 
-                # 퇴근 확인
                 if has_out:
                     actual_end_time = act_end.time()
-                    # 오후 휴가 없이, 표준 퇴근 시간 또는 예상 퇴근 시간(오후 휴가 고려)보다 일찍 퇴근
                     if not covers_aft and actual_end_time < STD_WORK_END_TIME :
-                        # current_issues.append(f"조퇴: {c_out_dt.strftime('%H:%M:%S')}")
                         issue_type_flags.append("조퇴")
-                    elif covers_aft and actual_end_time < exp_end_time: # 오후 휴가 있는데, 그 휴가 시작 시간보다도 일찍 퇴근
-                        # current_issues.append(f"조퇴({exp_end_time.strftime('%H:%M')} 이전): {c_out_dt.strftime('%H:%M:%S')}")
+                    elif covers_aft and actual_end_time < exp_end_time:
                         issue_type_flags.append("조퇴")
-                elif not covers_aft and has_in : # 오후 휴가도 없고, 출근은 했는데 퇴근 기록 없음
-                     # current_issues.append("퇴근 기록 없음")
+                elif not covers_aft and has_in :
                      issue_type_flags.append("퇴근 기록 없음")
 
-                # if current_issues: # 사용 안 함
-                #     analysis_result["notifications"].append(f"{display_name}: {', '.join(current_issues)}")
                 employee_statuses[display_name]['issue_types'] = issue_type_flags
 
-                # 보고서용 출퇴근 시간 문자열 설정
                 in_stat = c_in_dt.strftime('%H:%M:%S') if has_in else ("오전휴가" if covers_morn else "기록 없음")
-                out_stat = "-" # 기본값
+                out_stat = "-"
                 if has_out: out_stat = c_out_dt.strftime('%H:%M:%S')
-                else: # 퇴근 기록이 없을 때
-                    if covers_aft: # 오후 휴가면
-                        leave_start_str = exp_end_time.strftime('%H:%M') # 오후 휴가 시작 시간
+                else:
+                    if covers_aft:
+                        leave_start_str = exp_end_time.strftime('%H:%M')
                         out_stat = f"오후휴가({leave_start_str}부터)"
-                    elif has_in: # 출근은 했는데 퇴근 기록 없고 오후 휴가도 아님
+                    elif has_in:
                         out_stat = "기록 없음"
-                    elif not covers_morn : # 출근도 안했고 오전휴가도 아님 (사실상 미출근)
-                        out_stat = "미출근" # in_stat도 "기록 없음"일 것임
+                    elif not covers_morn :
+                        out_stat = "미출근"
 
                 employee_statuses[display_name]['in_time_str'] = in_stat
                 employee_statuses[display_name]['out_time_str'] = out_stat
 
-        # 최종 요약 카운트 (기존과 동일)
         final_target = sum(1 for s in employee_statuses.values() if s['status'] == 'target')
         final_excluded = sum(1 for s in employee_statuses.values() if s['status'] == 'excluded')
         final_c_in = sum(1 for s in employee_statuses.values() if s.get('status') == 'target' and s.get('has_clock_in', False))
         final_m_in = sum(1 for s in employee_statuses.values() if s.get('status') == 'target' and not s.get('covers_morning', False) and not s.get('has_clock_in', False))
         final_c_out = sum(1 for s in employee_statuses.values() if s.get('status') == 'target' and s.get('has_clock_out', False))
-        # 퇴근 미기록: 확인 대상이고, (출근했거나 오전휴가였고), 오후휴가가 아닌데, 퇴근 기록이 없는 경우
         final_m_out = sum(1 for s in employee_statuses.values() if s.get('status') == 'target' and \
                           (s.get('has_clock_in', False) or s.get('covers_morning', False)) and \
                           not s.get('covers_afternoon', False) and not s.get('has_clock_out', False))
@@ -692,43 +676,36 @@ def analyze_attendance(excel_data, sheet_name, target_date):
         analysis_result["summary"]["missing_out"] = final_m_out
 
         calc_total_processed = final_target + final_excluded
-        if calc_total_processed != num_groups_processed and num_groups_processed > 0 : # 0명일때는 경고 안띄움
+        if calc_total_processed != num_groups_processed and num_groups_processed > 0 :
             log_message(f"Count mismatch! Processed groups ({num_groups_processed}) != Target({final_target})+Excluded({final_excluded})={calc_total_processed}. Check ERP/Name uniqueness.", "WARNING")
 
         log_message(f"Analysis complete. {analysis_result['summary']['target']} target employees, {analysis_result['summary']['excluded']} excluded employees.")
         log_message(f"Final Summary Counts: Total(Name)={analysis_result['summary']['total_employees']}, Target={final_target}, Excl={final_excluded}, ClockedIn={final_c_in}, MissingIn={final_m_in}, ClockedOut={final_c_out}, MissingOut={final_m_out}")
 
-
-        # 텍스트 보고서 생성 (기존과 동일)
         plain_text = []
         now = datetime.datetime.now().time()
-        is_eve_run = now >= datetime.time(EVENING_RUN_THRESHOLD_HOUR, 0) # 저녁 실행 여부 (제목에 반영)
+        is_eve_run = now >= datetime.time(EVENING_RUN_THRESHOLD_HOUR, 0)
         summ = analysis_result["summary"]
 
-        # 텔레그램은 Markdown 등을 지원하므로, 필요시 마크다운 문자 추가 가능
         title = f"{target_date_str} {'퇴근' if is_eve_run else '출근'} 현황 요약"
         plain_text.append(title)
-        plain_text.append('-'*30) # 구분선
+        plain_text.append('-'*30)
         plain_text.append(f"총 인원: {summ.get('total_employees', 0)}명 (기준: 이름)")
         target_count = summ.get('target', 0)
         excluded_count = summ.get('excluded', 0)
         plain_text.append(f"확인 대상: {target_count}명 (제외: {excluded_count}명)")
 
         clocked_in_count = summ.get('clocked_in', 0)
-        # 출근 미기록자 수 = 확인 대상자 중 (오전 휴가가 아니고 and 출근 기록이 없는 사람)
         not_yet_clocked_in_count = summ.get('missing_in', 0)
         plain_text.append(f"출근: {clocked_in_count}명 (미기록/오전휴가: {not_yet_clocked_in_count}명)")
 
         clocked_out_count = summ.get('clocked_out', 0)
-        # 퇴근 미기록자 수 = 확인 대상자 중 (오후 휴가가 아니고 and (출근했거나 오전휴가였고) and 퇴근 기록 없는 사람)
         missing_out_count = summ.get('missing_out', 0)
         plain_text.append(f"퇴근: {clocked_out_count}명 (미기록/오후휴가: {missing_out_count}명)")
 
-
-        # 휴가자 및 제외자 명단
         leave_takers_list = []
-        for name, status_info in sorted(employee_statuses.items()): # 이름순 정렬
-            if status_info.get('took_leave', False): # 휴가를 하나라도 갔거나
+        for name, status_info in sorted(employee_statuses.items()):
+            if status_info.get('took_leave', False):
                  leave_detail = status_info.get('leave_details', '정보 없음')
                  leave_takers_list.append(f"- {name}: {leave_detail}")
 
@@ -739,18 +716,17 @@ def analyze_attendance(excel_data, sheet_name, target_date):
         else:
             plain_text.append(f"\n제외 및 휴가 인원: 없음")
 
-        plain_text.append('\n' + '='*30 + '\n') # 구분선
+        plain_text.append('\n' + '='*30 + '\n')
 
-        # 확인 대상자 상세 현황
         target_employee_details_list = []
         target_employee_count_for_list = 0
-        for name, status_info in sorted(employee_statuses.items()): # 이름순 정렬
+        for name, status_info in sorted(employee_statuses.items()):
              if status_info['status'] == 'target':
                  target_employee_count_for_list += 1
                  issue_string = ""
                  issue_types = status_info.get('issue_types', [])
                  if issue_types:
-                      issue_string = f"[{'/'.join(issue_types)}] " # 예: [지각/조퇴]
+                      issue_string = f"[{'/'.join(issue_types)}] "
 
                  in_status = status_info.get('in_time_str', '-')
                  out_status = status_info.get('out_time_str', '-')
@@ -758,14 +734,14 @@ def analyze_attendance(excel_data, sheet_name, target_date):
 
         if target_employee_details_list:
             plain_text.append(f"[{'퇴근' if is_eve_run else '출근'} 확인 대상 상세 현황] ({len(target_employee_details_list)}명)")
-            plain_text.append('-'*30) # 구분선
+            plain_text.append('-'*30)
             plain_text.extend(target_employee_details_list)
-        else: # 확인 대상자가 없을 때의 메시지
+        else:
             if analysis_result["summary"]["target"] == 0 and analysis_result["summary"]["excluded"] > 0:
                  plain_text.append(f"{target_date_str} 확인 대상 없음 (전원 휴가/제외됨).")
             elif analysis_result["summary"]["target"] == 0 and analysis_result["summary"]["excluded"] == 0:
                  plain_text.append(f"{target_date_str} 확인 대상 없음 (데이터 없음).")
-            else: # 이 경우는 거의 없어야 함
+            else:
                  plain_text.append(f"{target_date_str} 확인 대상 상세 정보 생성 오류.")
 
         analysis_result["plain_text_report"] = "\n".join(plain_text)
@@ -783,13 +759,12 @@ def analyze_attendance(excel_data, sheet_name, target_date):
         log_message(f"Unexpected analysis error: {e}", "ERROR"); logging.exception("Analysis unexpected error:")
         analysis_result["summary"]["total_employees"] = -1; analysis_result["plain_text_report"] = f"{target_date_str} 분석 중 예상치 못한 오류 발생: {e}"; return analysis_result
 
-# --- 텔레그램 메시지 전송 함수 ---
 def send_telegram_message(bot_token, chat_id, message_text):
     if not bot_token or not chat_id:
         log_message("텔레그램 봇 토큰 또는 Chat ID가 설정되지 않았습니다. 메시지 전송을 건너뜁니다.", "ERROR")
         return False
 
-    max_length = 4000  # 텔레그램 메시지 최대 길이 근사치 (실제 4096)
+    max_length = 4000
     messages_to_send = []
 
     if len(message_text) > max_length:
@@ -801,30 +776,24 @@ def send_telegram_message(bot_token, chat_id, message_text):
 
     all_sent_successfully = True
     for i, part_message in enumerate(messages_to_send):
-        # MarkdownV2 사용 시 특수 문자 이스케이프 (선택 사항)
-        # 주의: 이스케이프를 잘못하면 오히려 메시지가 이상해질 수 있으니, 내용에 따라 조절.
-        # 간단한 텍스트는 parse_mode 없이 보내는 것이 안전할 수 있음.
-        # part_message_escaped = part_message.replace('.', '\\.').replace('-', '\\-').replace('!', '\\!') # 예시
-        # payload = {'chat_id': chat_id, 'text': part_message_escaped, 'parse_mode': 'MarkdownV2'}
-
-        payload = {'chat_id': chat_id, 'text': part_message} # parse_mode 없이 기본 전송
+        payload = {'chat_id': chat_id, 'text': part_message}
         send_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         try:
-            response = requests.post(send_url, data=payload, timeout=30) # 타임아웃 증가
+            response = requests.post(send_url, data=payload, timeout=30)
             response.raise_for_status()
             log_message(f"텔레그램 메시지 전송 성공 (부분 {i+1}/{len(messages_to_send)}). 응답: {response.json()}", "INFO")
             if len(messages_to_send) > 1 and i < len(messages_to_send) - 1 :
-                time.sleep(1.5) # 메시지 분할 시 약간의 딜레이
+                time.sleep(1.5)
         except requests.exceptions.RequestException as e:
             log_message(f"텔레그램 메시지 전송 실패 (부분 {i+1}): {e}", "ERROR")
             if hasattr(e, 'response') and e.response is not None:
                 log_message(f"텔레그램 응답 내용: {e.response.text}", "ERROR")
             all_sent_successfully = False
-            break # 한 부분이라도 실패하면 중단
+            break
     return all_sent_successfully
 
 
-def run_report_process(config, run_identifier="Scheduled"): # run_identifier 기본값 변경
+def run_report_process(config, run_identifier="Scheduled"):
     process_start_log = f"--- Starting report process ({run_identifier}) ---"
     log_message(process_start_log)
 
@@ -843,7 +812,6 @@ def run_report_process(config, run_identifier="Scheduled"): # run_identifier 기
     try:
         log_message("Setting up WebDriver for the process...")
         driver = setup_driver()
-        # wait = WebDriverWait(driver, 30) # login_and_get_cookies 내부에서 wait 객체 생성
 
         try:
             if not config.get("WEBMAIL_USERNAME") or not config.get("WEBMAIL_PASSWORD"):
@@ -861,16 +829,14 @@ def run_report_process(config, run_identifier="Scheduled"): # run_identifier 기
             error_occurred = True
             log_message(f"Setup/Login/Download Error: {phase1_err}", "ERROR")
             final_status_message = f"로그인 또는 다운로드 실패: {phase1_err}"
-            logging.error(f"Process stopped during Setup/Login/Download: {phase1_err}") # logging 모듈 사용
-            # 오류 발생 시에도 드라이버는 finally에서 종료
-            raise # 이 예외는 외부 try-except에서 잡힘
+            logging.error(f"Process stopped during Setup/Login/Download: {phase1_err}")
+            raise
 
-        # 분석 단계
         log_message("Proceeding with analysis...")
         try:
             analysis_result = analyze_attendance(excel_file_data, EXCEL_SHEET_NAME, target_date)
             if not analysis_result or analysis_result.get("summary", {}).get("total_employees", -1) == -1:
-                error_occurred = True # 분석 실패 시 오류로 간주
+                error_occurred = True
                 final_status_message = analysis_result.get("plain_text_report", "분석 실패 (상세 메시지 없음).")
                 log_message(f"Analysis failed: {final_status_message}", "ERROR")
             else:
@@ -882,17 +848,14 @@ def run_report_process(config, run_identifier="Scheduled"): # run_identifier 기
             final_status_message = f"분석 오류: {phase2_err}"
             raise
 
-        # 텔레그램 발송 단계
         if not error_occurred and analysis_result and analysis_result.get("summary", {}).get("total_employees", -1) != -1:
             telegram_bot_token = config.get("TELEGRAM_BOT_TOKEN")
             telegram_chat_id = config.get("TELEGRAM_CHAT_ID")
 
             if telegram_bot_token and telegram_chat_id:
                 report_text = analysis_result.get("plain_text_report", "보고서 내용을 가져올 수 없습니다.")
-                team_name_from_analysis = analysis_result.get('team_name', '팀') # 분석에서 가져온 팀 이름
+                team_name_from_analysis = analysis_result.get('team_name', '팀')
                 
-                # 텔레그램 메시지 제목에 팀 이름과 실행 식별자 추가
-                # Markdown을 사용한다면 * 같은 특수문자 주의
                 message_title = f"[{config.get('SENDER_NAME', '근태봇')}] {target_date_str} {team_name_from_analysis} 근태 현황 ({run_identifier})"
                 full_message = f"{message_title}\n{'-'*20}\n{report_text}"
 
@@ -903,27 +866,30 @@ def run_report_process(config, run_identifier="Scheduled"): # run_identifier 기
                     final_status_message = "텔레그램 메시지 발송 완료됨."
                 else:
                     final_status_message = "텔레그램 메시지 발송 실패."
-                    # 텔레그램 발송 실패를 전체 프로세스 오류로 간주할지 여부 결정
-                    # error_occurred = True # 필요시
             else:
                 log_message("텔레그램 봇 토큰 또는 Chat ID가 설정되지 않았습니다. 메시지 전송을 건너뜁니다.", "WARNING")
                 final_status_message = final_status_message or "텔레그램 설정 누락으로 발송 건너뜀"
-        elif error_occurred: # 이전 단계에서 오류 발생
+        elif error_occurred:
             log_message("이전 단계 오류로 인해 텔레그램 발송을 건너뜁니다.", "WARNING")
             final_status_message = final_status_message or "텔레그램 발송 건너뜀 (이전 단계 오류)"
-        else: # 분석 결과가 유효하지 않음
+        else:
             log_message("분석 결과가 유효하지 않아 텔레그램 발송을 건너뜁니다.", "WARNING")
             final_status_message = final_status_message or "텔레그램 발송 건너뜀 (분석 결과 없음)"
 
-    except Exception as outer_err: # run_report_process 내부의 모든 예외를 캐치
+    except Exception as outer_err:
         log_message(f"Critical error in process ({run_identifier}): {outer_err}", "ERROR")
-        logging.exception(f"Critical Process Error ({run_identifier})") # 스택 트레이스 포함 로깅
-        error_occurred = True # 최종적으로 오류 상태임을 명시
+        logging.exception(f"Critical Process Error ({run_identifier})")
+        error_occurred = True
         final_status_message = final_status_message or f"치명적 오류: {outer_err}"
-        # 오류 발생 시에도 빈 보고서라도 보내고 싶다면 여기서 텔레그램 전송 로직 추가 가능
-        # if config.get("TELEGRAM_BOT_TOKEN") and config.get("TELEGRAM_CHAT_ID"):
-        #     error_report_text = f"[{config.get('SENDER_NAME', '근태봇')}] {target_date_str} 처리 중 오류 발생 ({run_identifier})\n오류: {outer_err}"
-        #     send_telegram_message(config.get("TELEGRAM_BOT_TOKEN"), config.get("TELEGRAM_CHAT_ID"), error_report_text)
+        # 오류 발생 시 텔레그램으로 간략한 오류 알림 (선택 사항)
+        if config.get("TELEGRAM_BOT_TOKEN") and config.get("TELEGRAM_CHAT_ID"):
+            error_report_text = f"[{config.get('SENDER_NAME', '근태봇')}] {target_date_str} 자동 근태 보고 중 오류 발생 ({run_identifier})\n오류: {str(outer_err)[:500]}..." # 오류 메시지 일부만 전송
+            try:
+                send_telegram_message(config.get("TELEGRAM_BOT_TOKEN"), config.get("TELEGRAM_CHAT_ID"), error_report_text)
+                log_message("오류 발생 사실을 텔레그램으로 알렸습니다.", "INFO")
+            except Exception as tel_err_report_err:
+                log_message(f"오류 알림 텔레그램 전송 실패: {tel_err_report_err}", "ERROR")
+
 
     finally:
         if driver:
@@ -950,7 +916,7 @@ def run_report_process(config, run_identifier="Scheduled"): # run_identifier 기
              completion_status = "정상 완료 (텔레그램 발송 성공)"
         elif not error_occurred and not telegram_sent_successfully:
              completion_status = "처리 완료 (텔레그램 발송 실패 또는 건너뜀)"
-        else: # error_occurred is True
+        else:
              completion_status = "오류 발생"
 
         status_summary = final_status_message if final_status_message else completion_status
@@ -959,30 +925,13 @@ def run_report_process(config, run_identifier="Scheduled"): # run_identifier 기
 
 
 def load_config_headless():
-    """ Headless 환경을 위한 설정 로드 (환경 변수 우선) """
     config = DEFAULT_CONFIG.copy()
-
-    # 환경 변수에서 주요 설정 로드
     config["WEBMAIL_USERNAME"] = os.getenv("WEBMAIL_USERNAME", config["WEBMAIL_USERNAME"])
     config["WEBMAIL_PASSWORD"] = os.getenv("WEBMAIL_PASSWORD", config["WEBMAIL_PASSWORD"])
     config["TELEGRAM_BOT_TOKEN"] = os.getenv("TELEGRAM_BOT_TOKEN", config["TELEGRAM_BOT_TOKEN"])
     config["TELEGRAM_CHAT_ID"] = os.getenv("TELEGRAM_CHAT_ID", config["TELEGRAM_CHAT_ID"])
     config["SENDER_NAME"] = os.getenv("SENDER_NAME", config["SENDER_NAME"])
 
-    # (선택 사항) JSON 설정 파일도 지원하려면
-    # if Path(CONFIG_FILE).exists():
-    #     try:
-    #         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-    #             file_config = json.load(f)
-    #         # 파일 설정이 환경 변수보다 우선순위가 낮도록 하거나, 필요한 부분만 업데이트
-    #         for key in config:
-    #             if key in file_config and not os.getenv(key.upper()): # 환경변수가 없을때만 파일값 사용
-    #                 config[key] = file_config[key]
-    #         log_message(f"Loaded additional config from {CONFIG_FILE}", "INFO")
-    #     except Exception as e:
-    #         log_message(f"Error loading config file {CONFIG_FILE}: {e}", "WARNING")
-
-    # 필수 값 확인
     required_env_vars = {
         "WEBMAIL_USERNAME": "웹메일 사용자 이름",
         "WEBMAIL_PASSWORD": "웹메일 비밀번호",
@@ -993,19 +942,17 @@ def load_config_headless():
     if missing_vars:
         msg = f"필수 환경 변수가 설정되지 않았습니다: {', '.join(missing_vars)}"
         log_message(msg, "ERROR")
-        raise ValueError(msg) # 프로그램 중단
-
+        raise ValueError(msg)
     return config
 
-# --- Main Execution ---
 if __name__ == "__main__":
-    if _path_source_info_lines: # 경로 결정 로그 출력
+    if _path_source_info_lines:
         for line in _path_source_info_lines:
-            print(line) # 시작 시 표준 출력으로 보여줌
+            print(line)
 
     print(f"User Data Path: {USER_DATA_PATH}")
     print(f"Log File: {LOG_FILE}")
-    print(f"Config File (if used): {CONFIG_FILE}")
+    # print(f"Config File (if used): {CONFIG_FILE}") # JSON 설정 파일 사용 안 함
     print(f"APP_ROOT_PATH (for bundled resources, if any): {APP_ROOT_PATH}")
 
     log_message(f"--- Starting Headless Attendance Bot (ktMOS_DG_Headless) ---")
@@ -1017,16 +964,19 @@ if __name__ == "__main__":
         loaded_config = load_config_headless()
         run_identifier = f"Run_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
         run_report_process(loaded_config, run_identifier=run_identifier)
-    except ValueError as ve: # load_config_headless에서 필수 설정 누락 시 발생
+    except ValueError as ve:
         log_message(f"Configuration error: {ve}", "ERROR")
-        sys.exit(1) # 오류 종료
+        sys.exit(1)
     except Exception as e:
         log_message(f"An unexpected error occurred in the main execution block: {e}", "ERROR")
         logging.exception("Fatal error during main execution.")
-        # 심각한 오류 발생 시에도 텔레그램으로 알림을 보내고 싶다면 여기에 로직 추가 가능
-        # if loaded_config and loaded_config.get("TELEGRAM_BOT_TOKEN") and loaded_config.get("TELEGRAM_CHAT_ID"):
-        #    error_message = f"자동 근태 확인 봇 실행 중 심각한 오류 발생:\n{e}\n로그 파일을 확인하세요: {LOG_FILE}"
-        #    send_telegram_message(loaded_config["TELEGRAM_BOT_TOKEN"], loaded_config["TELEGRAM_CHAT_ID"], error_message)
-        sys.exit(1) # 오류 종료
+        if loaded_config and loaded_config.get("TELEGRAM_BOT_TOKEN") and loaded_config.get("TELEGRAM_CHAT_ID"):
+           error_message = f"자동 근태 확인 봇 실행 중 심각한 오류 발생:\n{str(e)[:1000]}\n로그 파일을 확인하세요." # 오류 메시지 길이 제한
+           try:
+               send_telegram_message(loaded_config["TELEGRAM_BOT_TOKEN"], loaded_config["TELEGRAM_CHAT_ID"], error_message)
+               log_message("심각한 오류 발생 사실을 텔레그램으로 알렸습니다.", "INFO")
+           except Exception as tel_err_report_err:
+               log_message(f"심각한 오류 알림 텔레그램 전송 실패: {tel_err_report_err}", "ERROR")
+        sys.exit(1)
     finally:
         log_message("--- Headless Attendance Bot Finished ---")
