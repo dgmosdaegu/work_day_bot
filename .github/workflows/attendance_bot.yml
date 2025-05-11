@@ -1,0 +1,62 @@
+name: Daily Attendance Report Bot # 워크플로우의 이름 (GitHub Actions 탭에 표시됨)
+
+on:
+  schedule:
+    # UTC 기준으로 매주 월요일부터 금요일까지, 오전 8시 (한국 시간 오후 5시)에 실행
+    # Cron 구문: 분 시 일 월 요일 (요일: 0=일요일, 6=토요일)
+    # 예: 한국 시간 오전 8시면, UTC로는 전날 23시 (서머타임 미적용 시)
+    # 또는 한국 시간 오전 9시면, UTC로는 당일 00시
+    # 아래는 예시: 한국 시간 오전 8시에 실행되도록 (UTC로는 전날 23시)
+    - cron: '0 23 * * 1-5' # 매주 월-금, 23:00 UTC (한국 시간 익일 오전 8시, 서머타임 미적용 시)
+                             # 한국 시간 오전 9시 실행 원하면 '0 0 * * 1-5'
+  workflow_dispatch: # GitHub Actions 탭에서 수동으로 워크플로우를 실행할 수 있게 함
+
+jobs:
+  run-attendance-script: # 작업(job)의 ID (임의 지정 가능)
+    runs-on: ubuntu-latest # 스크립트를 실행할 가상 환경 (최신 Ubuntu)
+
+    steps: # 작업 내 단계들
+      - name: Checkout repository code # 1. 리포지토리 코드를 가상 환경으로 가져옴
+        uses: actions/checkout@v4 # 표준 GitHub Action 사용
+
+      - name: Set up Python # 2. 파이썬 환경 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9' # 스크립트와 호환되는 파이썬 버전 명시
+
+      - name: Install Google Chrome # 3. Chrome 브라우저 설치 (Selenium에 필요)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
+      - name: Install Python dependencies # 4. 파이썬 의존성 라이브러리 설치
+        run: |
+          python -m pip install --upgrade pip
+          # 필요한 라이브러리들을 직접 명시하거나 requirements.txt 사용
+          pip install selenium pandas requests webdriver-manager openpyxl
+          # 만약 requirements.txt 파일이 있다면:
+          # pip install -r requirements.txt
+
+      - name: Run attendance report script # 5. 파이썬 스크립트 실행
+        env: # 스크립트 실행 시 사용할 환경 변수 설정
+          WEBMAIL_USERNAME: ${{ secrets.WEBMAIL_USERNAME }}
+          WEBMAIL_PASSWORD: ${{ secrets.WEBMAIL_PASSWORD }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # 스크립트가 USER_DATA_PATH (설정 파일, 로그 파일 저장 경로)를 사용한다면,
+          # GitHub Actions 환경에 맞게 경로 지정
+          # 예: 작업 공간 내의 user_data 디렉토리 사용
+          KTMOS_BOT_USER_DATA_PATH: ${{ github.workspace }}/bot_data
+        run: |
+          # KTMOS_BOT_USER_DATA_PATH 디렉토리가 없다면 생성
+          mkdir -p ${{ env.KTMOS_BOT_USER_DATA_PATH }}
+          # 스크립트 실행 (파일 이름을 실제 파일명으로 변경)
+          python work_day_mail_bot_headless.py
+
+      # (선택 사항) 생성된 로그 파일이나 결과물을 아티팩트로 저장
+      # - name: Upload logs as artifact
+      #   if: always() # 작업 성공/실패 여부와 관계없이 항상 실행
+      #   uses: actions/upload-artifact@v3
+      #   with:
+      #     name: attendance-bot-logs
+      #     path: ${{ env.KTMOS_BOT_USER_DATA_PATH }}/attendance_bot.log # 실제 로그 파일 경로
