@@ -1,0 +1,6 @@
+selenium
+pandas
+requests
+webdriver-manager
+openpyxl
+# 기타 필요한 라이브러리
